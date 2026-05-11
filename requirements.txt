@@ -1,0 +1,8 @@
+torch>=2.0
+torchvision
+git+https://github.com/openai/CLIP.git
+Pillow
+matplotlib
+scikit-learn
+tqdm
+jupyter
