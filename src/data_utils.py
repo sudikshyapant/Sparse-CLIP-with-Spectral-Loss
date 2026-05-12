@@ -1,6 +1,5 @@
 import json
 import pathlib
-import pickle
 from typing import Optional
 
 import torch
@@ -26,7 +25,10 @@ class COCOCaptionDataset(Dataset):
             img_id = ann["image_id"]
             if img_id not in id2file:
                 continue
-            pairs.append((img_dir / id2file[img_id], ann["caption"]))
+            img_path = img_dir / id2file[img_id]
+            if not img_path.exists():   # skip images not yet downloaded
+                continue
+            pairs.append((img_path, ann["caption"]))
             if max_samples and len(pairs) >= max_samples:
                 break
 

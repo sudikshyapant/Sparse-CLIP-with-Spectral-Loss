@@ -6,13 +6,9 @@ import pathlib
 _in_colab = "COLAB_RELEASE_TAG" in os.environ or os.path.exists("/content")
 
 if _in_colab:
-    try:
-        from google.colab import drive
-        drive.mount("/content/drive", force_remount=False)
-        _base = pathlib.Path("/content/drive/MyDrive/sparse_clip")
-    except Exception as e:
-        print(f"[config] Drive mount failed: {e}; falling back to /content/sparse_clip")
-        _base = pathlib.Path("/content/sparse_clip")
+    from google.colab import drive
+    drive.mount("/content/drive", force_remount=False)
+    _base = pathlib.Path("/content/drive/MyDrive/sparse_clip")
 else:
     _base = pathlib.Path(__file__).resolve().parents[1]  # project root
 
