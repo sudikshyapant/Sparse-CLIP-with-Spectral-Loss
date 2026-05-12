@@ -121,3 +121,74 @@ def _collate(batch):
 def make_loader(img_emb: torch.Tensor, txt_emb: torch.Tensor, batch_size: int, shuffle: bool = True) -> DataLoader:
     ds = EmbeddingDataset(img_emb, txt_emb)
     return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=False)
+
+
+# ── CIFAR-100 zero-shot helpers ───────────────────────────────────────────────
+
+_CIFAR100_TEMPLATES = [
+    'a photo of a {}.',
+    'a blurry photo of a {}.',
+    'a photo of the {}.',
+    'a rendering of a {}.',
+    'itap of a {}.',
+    'a photo of a small {}.',
+    'a photo of a large {}.',
+]
+
+
+def load_or_compute_cifar100_embs(
+    clip_model,
+    preprocess,
+    cache_dir: pathlib.Path,
+    device: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return (img_embs, cls_embs, labels) for CIFAR-100 test split.
+
+    img_embs : (10000, E)  L2-normalised CLIP image embeddings
+    cls_embs : (100,   E)  L2-normalised template-ensemble class embeddings
+    labels   : (10000,)    integer ground-truth class indices
+
+    Results are cached under cache_dir so subsequent calls are instant.
+    """
+    import importlib
+    torchvision = importlib.import_module('torchvision')
+    import torch.nn.functional as _F
+
+    img_path = cache_dir / 'cifar100_img_emb.pt'
+    cls_path = cache_dir / 'cifar100_cls_emb.pt'
+    lab_path = cache_dir / 'cifar100_labels.pt'
+
+    if img_path.exists() and cls_path.exists() and lab_path.exists():
+        print('[data_utils] Loading cached CIFAR-100 embeddings...')
+        return torch.load(img_path), torch.load(cls_path), torch.load(lab_path)
+
+    print('[data_utils] Computing CIFAR-100 CLIP embeddings (first time)...')
+    cifar_root = '/tmp/cifar100'
+
+    ds = torchvision.datasets.CIFAR100(cifar_root, train=False, download=True, transform=preprocess)
+    loader = DataLoader(ds, batch_size=256, shuffle=False, num_workers=2)
+
+    all_img, all_labels = [], []
+    clip_model.eval()
+    with torch.no_grad():
+        for imgs, labs in loader:
+            emb = clip_model.encode_image(imgs.to(device)).float()
+            all_img.append(_F.normalize(emb, dim=-1).cpu())
+            all_labels.append(labs)
+    img_embs = torch.cat(all_img)
+    labels   = torch.cat(all_labels)
+
+    class_names = torchvision.datasets.CIFAR100(cifar_root, train=False, download=False).classes
+    all_cls = []
+    with torch.no_grad():
+        for name in class_names:
+            tokens = clip.tokenize([t.format(name) for t in _CIFAR100_TEMPLATES]).to(device)
+            emb = clip_model.encode_text(tokens).float()
+            all_cls.append(_F.normalize(emb.mean(0, keepdim=True), dim=-1).cpu())
+    cls_embs = torch.cat(all_cls)
+
+    torch.save(img_embs, img_path)
+    torch.save(cls_embs, cls_path)
+    torch.save(labels,   lab_path)
+    print(f'[data_utils] Cached to {cache_dir}')
+    return img_embs, cls_embs, labels

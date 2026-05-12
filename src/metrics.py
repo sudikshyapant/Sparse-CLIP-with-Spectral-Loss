@@ -2,6 +2,38 @@ import torch
 import torch.nn.functional as F
 
 
+def active_feature_pct(z: torch.Tensor, tau: float = 0.001, n_min: int = 2) -> float:
+    """Percentage of features that activate for ≥ n_min samples (paper Table 3a 'Active F%')."""
+    n_active = (z > tau).sum(0)                      # (D,) count per feature
+    return (n_active >= n_min).float().mean().item() * 100
+
+
+@torch.no_grad()
+def zero_shot_accuracy(
+    head,
+    cls_embs: torch.Tensor,
+    img_embs: torch.Tensor,
+    labels: torch.Tensor,
+    device: str,
+    batch_size: int = 512,
+) -> float:
+    """Top-1 zero-shot accuracy using sparse representations.
+
+    Args:
+        head:      SparseHead (or any module returning (z_sparse, z_norm))
+        cls_embs:  (C, E) L2-normalised CLIP text embeddings for C class names
+        img_embs:  (N, E) L2-normalised CLIP image embeddings
+        labels:    (N,) integer ground-truth class indices
+    """
+    head.eval()
+    _, cls_z = head(cls_embs.to(device))        # (C, D) L2-normalised sparse
+    preds = []
+    for i in range(0, len(img_embs), batch_size):
+        _, z = head(img_embs[i:i + batch_size].to(device))
+        preds.append((z @ cls_z.T).argmax(1).cpu())
+    return (torch.cat(preds) == labels).float().mean().item()
+
+
 def l0_sparsity(z: torch.Tensor) -> float:
     """Mean number of active (non-zero) features per sample."""
     return (z > 0).float().sum(dim=-1).mean().item()
